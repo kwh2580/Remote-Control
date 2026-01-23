@@ -3,5 +3,5 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Project Path="RemoteControlServer/RemoteControlServer.vcxproj" />
+  <Project Path="RemoteControlServer/RemoteControlServer.vcxproj" Id="9d1ff97c-f1ff-4655-8dad-76671889b5d0" />
 </Solution>
