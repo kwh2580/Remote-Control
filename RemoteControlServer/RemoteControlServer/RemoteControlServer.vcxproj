@@ -139,6 +139,7 @@
     <ClInclude Include="Pack.h" />
     <ClInclude Include="Server.h" />
     <ClInclude Include="ServerFun.h" />
+    <ClInclude Include="stb_image_write.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
