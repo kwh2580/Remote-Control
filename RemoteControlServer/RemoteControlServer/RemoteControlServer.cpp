@@ -4,6 +4,8 @@
 #include <ws2tcpip.h>
 #include <iostream>
 #include "Server.h"
+#include "ServerFun.h"
+#include "handle.h"
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -11,7 +13,10 @@
 #define BUFFER_SIZE 1024
 
 int main() {
-
+    //std::cout << CServerFun::GetDiskInformation() << std::endl;
+   // std::cout << CServerFun::GetFileList("C:\\Users\\32404\\Desktop\\aaa") << std::endl;
+    handle::HandleGetFileList(0, CPack());
+    return 0;
     try {
         auto& server = CServer::getInstance();
         server.start(PORT);

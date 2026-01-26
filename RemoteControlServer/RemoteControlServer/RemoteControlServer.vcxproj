@@ -42,8 +42,8 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
+    <PlatformToolset>v145</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
@@ -127,13 +127,18 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="handle.cpp" />
     <ClCompile Include="Pack.cpp" />
     <ClCompile Include="RemoteControlServer.cpp" />
     <ClCompile Include="Server.cpp" />
+    <ClCompile Include="ServerFun.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="handle.h" />
+    <ClInclude Include="json.hpp" />
     <ClInclude Include="Pack.h" />
     <ClInclude Include="Server.h" />
+    <ClInclude Include="ServerFun.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

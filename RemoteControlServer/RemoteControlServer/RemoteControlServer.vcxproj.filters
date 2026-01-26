@@ -24,12 +24,27 @@
     <ClCompile Include="Pack.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="ServerFun.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="handle.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Server.h">
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="Pack.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="ServerFun.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="json.hpp">
+      <Filter>源文件</Filter>
+    </ClInclude>
+    <ClInclude Include="handle.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>
