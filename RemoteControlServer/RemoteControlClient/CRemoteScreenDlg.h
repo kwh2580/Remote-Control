@@ -1,6 +1,8 @@
 ﻿#pragma once
 #include "afxdialogex.h"
 
+// 前置声明
+class CRemoteControlClientDlg;
 
 // CRemoteScreenDlg 对话框
 
@@ -23,4 +25,8 @@ protected:
 	DECLARE_MESSAGE_MAP()
 public:
 	CStatic RemoteControlScreen;
+	afx_msg void OnDestroy();
+	afx_msg void OnBnClickedButton1();
+	afx_msg void OnClose();
+	CRemoteControlClientDlg* p_RemoteControlClientDlg;
 };

@@ -8,7 +8,6 @@
 CPack::CPack()
     : m_nPackID(0), m_nPackLen(0)
 {
-    // std::vector 初始为空，无需 memset
 }
 
 CPack::CPack(int id, const char* data, int len) {

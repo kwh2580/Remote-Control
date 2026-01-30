@@ -16,6 +16,7 @@
 #include "Pack.h"
 #include "MfcLogger.h"
 #include "Client.h"
+#include "CRemoteScreenDlg.h"
 
 
 // 用于应用程序“关于”菜单项的 CAboutDlg 对话框
@@ -62,6 +63,17 @@ CRemoteControlClientDlg::CRemoteControlClientDlg(CWnd* pParent /*=nullptr*/)
 	: CDialogEx(IDD_REMOTECONTROLCLIENT_DIALOG, pParent)
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
+}
+
+CRemoteControlClientDlg::~CRemoteControlClientDlg()
+{
+	if(p_RemoteScreen != nullptr)
+	{
+		
+		p_RemoteScreen->DestroyWindow(); // 销毁窗口
+        delete p_RemoteScreen;
+
+	}
 }
 
 void CRemoteControlClientDlg::DoDataExchange(CDataExchange* pDX)
@@ -180,6 +192,8 @@ HCURSOR CRemoteControlClientDlg::OnQueryDragIcon()
 
 void CRemoteControlClientDlg::OnBnClickedButton1()
 {
+	ShowRemoteScreen();
+	return;
 	char* str = "D:\\ChangZhi\\dnplayer2\\AdbWinApi.dll";
 	CPack pack(6, str,strlen(str));
 	client.sendPack(pack);
@@ -265,7 +279,8 @@ void CRemoteControlClientDlg::OnBnClickedButtonconnect()
     });
     client.bindPackHandler(2, [this, hRoot](const CPack& pack) {
 		nlohmann::json packjson;
-		packjson = nlohmann::json::parse(pack.getData());
+		std::string json1(pack.getData(), pack.getDataLen());
+		packjson = nlohmann::json::parse(json1);
 		//获取表示
         bool stop = packjson["stop"];
 		CString str;
@@ -404,8 +419,12 @@ void CRemoteControlClientDlg::OnBnClickedButtonconnect()
 			return;
 		}
 		m_cachedJpgImage.assign(pData, pData + dataLen);
+		//显示图片
+		
+        ShowRemoteScreen();
 
-		LOG_INFO(_T("图像缓存已刷新，大小: %zu 字节"), dataLen);
+	
+	
 
 	});
     
@@ -588,110 +607,244 @@ void CRemoteControlClientDlg::Ondeletfile()
 	// TODO: 在此添加命令处理程序代码
 }
 //定时发送数据获取屏幕数据
-void CRemoteControlClientDlg::GetScreenData(LPVOID pParam)
+UINT CRemoteControlClientDlg::GetScreenDataThread(LPVOID pParam)
 {
-	while (true)
+	// 将传入的this指针转为对话框对象指针
+	CRemoteControlClientDlg* pDlg = (CRemoteControlClientDlg*)pParam;
+	if (pDlg == nullptr)
 	{
-		// 创建一个CPack对象，并设置pack_id为1，data为"PPPPPPPP"，data_len为8
-		CPack pack(6, "hello", 5);
-		// 调用client对象的sendPack方法，将pack对象发送给服务器
-		client.sendPack(pack);
-		// 休眠1000毫秒
-		Sleep(20);
+		AfxMessageBox(_T("线程初始化失败：对话框指针为空！"));
+		return 1; // 线程异常退出，返回非0
 	}
+
+	// 设置线程退出标志为true，开始循环
+	pDlg->m_bThreadRunning = true;
+	while (pDlg->m_bThreadRunning) // 由退出标志控制循环
+	{
+		// 调用业务函数：单次发送屏幕请求
+		pDlg->GetScreenData();
+		// 休眠20ms，控制循环频率（原逻辑的Sleep）
+		Sleep(100);
+	}
+
+	// 循环结束，线程正常退出，返回0
+	pDlg->m_pScreenThread = nullptr; // 清空线程句柄
+	pDlg->m_bThreadRunning = false;  // 重置退出标志
+	return 0;
+}
+void CRemoteControlClientDlg::GetScreenData()
+{
+    CPack pack(6, "PPPPPPPP", 8);
+    client.sendPack(pack);
+}
+
+
+// 启动屏幕数据线程
+void CRemoteControlClientDlg::StartScreenThread()
+{
+	// 防止重复启动线程：线程句柄非空 或 线程正在运行，直接返回
+	if (m_pScreenThread != nullptr || m_bThreadRunning)
+	{
+		AfxMessageBox(_T("屏幕数据线程已在运行！"));
+		return;
+	}
+
+	// 创建并启动MFC工作线程（CREATE_SUSPENDED：先创建挂起，再启动，更安全）
+	m_pScreenThread = AfxBeginThread(
+		GetScreenDataThread,  // 线程入口函数（静态成员函数）
+		this,                 // 传递给线程的参数（对话框this指针）
+		THREAD_PRIORITY_NORMAL, // 线程优先级（默认正常即可）
+		0,                    // 线程栈大小（0表示使用系统默认）
+		CREATE_SUSPENDED      // 挂起创建，后续手动ResumeThread启动
+	);
+
+	if (m_pScreenThread == nullptr)
+	{
+		AfxMessageBox(_T("创建屏幕数据线程失败！"));
+		return;
+	}
+
+	// 设置线程为“后台线程”：主程序退出时，后台线程会自动退出（避免阻塞程序退出）
+	m_pScreenThread->m_bAutoDelete = TRUE; // MFC默认TRUE，可显式设置
+	// 启动挂起的线程
+	m_pScreenThread->ResumeThread();
+	AfxMessageBox(_T("屏幕数据线程启动成功！"));
+}
+
+
+// 安全停止屏幕数据线程
+void CRemoteControlClientDlg::StopScreenThread()
+{
+	// 线程未运行，直接返回
+	if (!m_bThreadRunning || m_pScreenThread == nullptr)
+	{
+		AfxMessageBox(_T("屏幕数据线程未运行！"));
+		return;
+	}
+
+	// 第一步：设置退出标志，让线程的循环自然结束（核心：安全退出）
+	m_bThreadRunning = false;
+	// 第二步：等待线程退出（最多等待1秒，避免无限阻塞）
+	DWORD dwRet = WaitForSingleObject(m_pScreenThread->m_hThread, 1000);
+	switch (dwRet)
+	{
+	case WAIT_OBJECT_0:
+		// 线程正常退出
+		AfxMessageBox(_T("屏幕数据线程已正常停止！"));
+		break;
+	case WAIT_TIMEOUT:
+		// 线程超时未退出，强制终止（万不得已才用，尽量避免）
+		TerminateThread(m_pScreenThread->m_hThread, -1);
+		AfxMessageBox(_T("屏幕数据线程超时，已强制终止！"));
+		break;
+	default:
+		// 等待失败
+		AfxMessageBox(_T("停止屏幕数据线程失败！"));
+		break;
+	}
+
+	// 清空线程句柄和退出标志
+	m_pScreenThread = nullptr;
+	m_bThreadRunning = false;
 }
 
 //显示远程屏幕
 void CRemoteControlClientDlg::ShowRemoteScreen()
 {
-	// 1. 空数据判断：未接收到JPG数据时直接返回，避免崩溃
-	if (m_cachedJpgImage.empty())
+	// 1. 空数据/控件空判断：双重校验，避免崩溃
+	if (m_cachedJpgImage.empty() || p_RemoteScreen == nullptr || !p_RemoteScreen->RemoteControlScreen.IsWindowVisible())
 	{
 		return;
 	}
 
-	// 2. 定义CImage对象，用于解析JPG二进制数据
 	CImage img;
-	HGLOBAL hGlobal = NULL;  // 全局内存句柄，用于创建IStream流
-	IStream* pStream = NULL; // 流对象，CImage从流中加载JPG
-	HBITMAP hOldBmp = NULL;  // 控件原有位图句柄，用于释放
+	HGLOBAL hGlobal = NULL;
+	IStream* pStream = NULL;
+	HBITMAP hOldBmp = NULL;
+	// 新增：保存控件DC，用于自适应绘制
+	CDC* pCtrlDC = nullptr;
+	HDC hMemDC = NULL;
+	HBITMAP hMemBmp = NULL, hOldMemBmp = NULL;
+
+	// 统一资源释放：无论是否成功，都释放所有申请的资源
+	auto ReleaseAll = [&]() {
+		if (hOldMemBmp) SelectObject(hMemDC, hOldMemBmp);
+		if (hMemBmp) DeleteObject(hMemBmp);
+		if (hMemDC) DeleteDC(hMemDC);
+		if (pCtrlDC) p_RemoteScreen->RemoteControlScreen.ReleaseDC(pCtrlDC);
+		if (pStream) pStream->Release();
+		if (hOldBmp) DeleteObject(hOldBmp);
+		img.Destroy(); // 主动销毁CImage，避免内存泄漏
+		};
 
 	try
 	{
-		// 3. 将std::vector<BYTE>的JPG数据转为IStream流（CImage要求的加载方式）
-		// 分配全局内存，大小为JPG数据长度
-		hGlobal = GlobalAlloc(GMEM_MOVEABLE, m_cachedJpgImage.size());
+		// 2. 分配全局内存并拷贝JPG数据（原逻辑不变，加错误提示）
+		hGlobal = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, m_cachedJpgImage.size());
 		if (hGlobal == NULL)
 		{
-			AfxMessageBox(_T("分配内存失败！"));
+			AfxMessageBox(_T("分配全局内存失败！错误码："));
+			ReleaseAll();
 			return;
 		}
-		// 将vector中的JPG数据拷贝到全局内存
+
 		LPVOID pData = GlobalLock(hGlobal);
 		memcpy(pData, m_cachedJpgImage.data(), m_cachedJpgImage.size());
 		GlobalUnlock(hGlobal);
 
-		// 从全局内存创建IStream流
-		if (CreateStreamOnHGlobal(hGlobal, TRUE, &pStream) != S_OK)
+		// 3. 创建内存流（原逻辑不变，加错误提示）
+		HRESULT hr = CreateStreamOnHGlobal(hGlobal, TRUE, &pStream);
+		if (hr != S_OK)
 		{
-			AfxMessageBox(_T("创建流对象失败！"));
-			GlobalFree(hGlobal); // 释放已分配的内存
+			AfxMessageBox(_T("创建IStream流失败！HRESULT："));
+			ReleaseAll();
 			return;
 		}
 
-		// 4. 从IStream流加载JPG数据到CImage（自动解析JPG格式）
-		if (img.Load(pStream) != S_OK)
+		// 4. 加载JPG到CImage（关键修复：加GDI+依赖、校验加载结果）
+		HRESULT loadHr = img.Load(pStream);
+		if (loadHr != S_OK)
 		{
-			AfxMessageBox(_T("解析JPG图片失败！（数据可能损坏/非JPG格式）"));
+			//AfxMessageBox(_T("CImage解析JPG失败！\n错误码)));
+			ReleaseAll();
 			return;
 		}
 
-		// 5. 将CImage中的位图设置到图片控件CStatic
-		// 先获取控件原有位图句柄，避免内存泄漏
-		hOldBmp = m_EdiLog.GetBitmap();
-		// 设置新位图到控件（CStatic的SetBitmap会返回原有句柄）
-		m_EdiLog.SetBitmap(img.Detach()); // Detach：将CImage的HBITMAP分离出来，交给控件管理
-
-		// 6. 释放控件原有位图（关键：避免内存泄漏）
-		if (hOldBmp != NULL)
+		// 5. 核心修复：获取控件客户区，创建适配的内存DC绘制（替代直接SetBitmap）
+		CRect ctrlRect;
+		p_RemoteScreen->RemoteControlScreen.GetClientRect(&ctrlRect); // 控件有效绘制区域
+		if (ctrlRect == nullptr)
 		{
-			DeleteObject(hOldBmp);
-			hOldBmp = NULL;
+			AfxMessageBox(_T("图片控件区域为空！"));
+			ReleaseAll();
+			return;
 		}
 
-		// 7. 刷新控件，让图片立即显示（避免卡顿/不刷新）
-		m_EdiLog.Invalidate();    // 标记控件为需要重绘
-		m_EdiLog.UpdateWindow(); // 立即执行重绘，显示新图片
+		// 获取控件DC，用于最终绘制
+		pCtrlDC = p_RemoteScreen->RemoteControlScreen.GetDC();
+		// 创建内存DC，用于离线绘制（避免闪屏）
+		hMemDC = CreateCompatibleDC(pCtrlDC->m_hDC);
+		// 创建与控件同尺寸的位图，作为绘制画布
+		hMemBmp = CreateCompatibleBitmap(pCtrlDC->m_hDC, ctrlRect.Width(), ctrlRect.Height());
+		hOldMemBmp = (HBITMAP)SelectObject(hMemDC, hMemBmp);
+
+		// 清空白布（避免残留旧图）
+		RECT memRect = { 0,0,ctrlRect.Width(),ctrlRect.Height() };
+		FillRect(hMemDC, &memRect, (HBRUSH)GetStockObject(WHITE_BRUSH));
+
+		// 自适应缩放绘制图片（保持宽高比，无拉伸）
+		int imgW = img.GetWidth();
+		int imgH = img.GetHeight();
+		float scaleX = (float)ctrlRect.Width() / imgW;
+		float scaleY = (float)ctrlRect.Height() / imgH;
+		float scale = min(scaleX, scaleY); // 取最小缩放比，保证图片完整
+		int drawW = (int)(imgW * scale);
+		int drawH = (int)(imgH * scale);
+		int drawX = (ctrlRect.Width() - drawW) / 2;  // 水平居中
+		int drawY = (ctrlRect.Height() - drawH) / 2; // 垂直居中
+
+		// 将CImage绘制到内存DC的画布上
+		img.Draw(hMemDC, drawX, drawY, drawW, drawH, 0, 0, imgW, imgH);
+
+		// 6. 将内存DC的画布绘制到控件DC，完成显示（核心替代SetBitmap）
+		BitBlt(pCtrlDC->m_hDC, 0, 0, ctrlRect.Width(), ctrlRect.Height(),
+			hMemDC, 0, 0, SRCCOPY);
+
+		// 7. 刷新控件，立即显示
+		p_RemoteScreen->RemoteControlScreen.Invalidate(FALSE); // FALSE：不擦除背景，避免闪屏
+		p_RemoteScreen->RemoteControlScreen.UpdateWindow();
 	}
 	catch (CException* e)
 	{
-		// 异常捕获：打印错误信息
 		CString strErr;
 		e->GetErrorMessage(strErr.GetBuffer(256), 256);
 		AfxMessageBox(_T("显示远程屏幕失败：") + strErr);
 		e->Delete();
+		ReleaseAll();
 	}
 	catch (...)
 	{
-		// 捕获未知异常，防止程序崩溃
 		AfxMessageBox(_T("显示远程屏幕时发生未知错误！"));
+		ReleaseAll();
 	}
 
-	// 8. 释放资源（无论是否成功，都要释放）
-	if (pStream != NULL)
-	{
-		pStream->Release(); // 释放IStream流
-	}
-	// 注意：hGlobal不需要手动释放，CreateStreamOnHGlobal第二个参数为TRUE时，流释放会自动释放hGlobal
-	if (hOldBmp != NULL)
-	{
-		DeleteObject(hOldBmp); // 二次释放保护
-	}
+	// 最终资源释放兜底
+	ReleaseAll();
 }
-
 
 void CRemoteControlClientDlg::OnBnClickedButtonremotescreen()
 {
+	//启动线程
+	StartScreenThread();
+	if (p_RemoteScreen == nullptr || !(p_RemoteScreen->IsWindowVisible()))
+	{
+		p_RemoteScreen = new CRemoteScreenDlg(this);
+		p_RemoteScreen->Create(IDD_REMOTE_SCREEN,this);
+        p_RemoteScreen->ShowWindow(SW_SHOW);	
+	}
+
+	
+
 	//创建对话框
 	//RemoteScreen dlg;
  //   dlg.DoModal();
