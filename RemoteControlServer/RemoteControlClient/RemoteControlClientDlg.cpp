@@ -601,6 +601,94 @@ void CRemoteControlClientDlg::GetScreenData(LPVOID pParam)
 	}
 }
 
+//显示远程屏幕
+void CRemoteControlClientDlg::ShowRemoteScreen()
+{
+	// 1. 空数据判断：未接收到JPG数据时直接返回，避免崩溃
+	if (m_cachedJpgImage.empty())
+	{
+		return;
+	}
+
+	// 2. 定义CImage对象，用于解析JPG二进制数据
+	CImage img;
+	HGLOBAL hGlobal = NULL;  // 全局内存句柄，用于创建IStream流
+	IStream* pStream = NULL; // 流对象，CImage从流中加载JPG
+	HBITMAP hOldBmp = NULL;  // 控件原有位图句柄，用于释放
+
+	try
+	{
+		// 3. 将std::vector<BYTE>的JPG数据转为IStream流（CImage要求的加载方式）
+		// 分配全局内存，大小为JPG数据长度
+		hGlobal = GlobalAlloc(GMEM_MOVEABLE, m_cachedJpgImage.size());
+		if (hGlobal == NULL)
+		{
+			AfxMessageBox(_T("分配内存失败！"));
+			return;
+		}
+		// 将vector中的JPG数据拷贝到全局内存
+		LPVOID pData = GlobalLock(hGlobal);
+		memcpy(pData, m_cachedJpgImage.data(), m_cachedJpgImage.size());
+		GlobalUnlock(hGlobal);
+
+		// 从全局内存创建IStream流
+		if (CreateStreamOnHGlobal(hGlobal, TRUE, &pStream) != S_OK)
+		{
+			AfxMessageBox(_T("创建流对象失败！"));
+			GlobalFree(hGlobal); // 释放已分配的内存
+			return;
+		}
+
+		// 4. 从IStream流加载JPG数据到CImage（自动解析JPG格式）
+		if (img.Load(pStream) != S_OK)
+		{
+			AfxMessageBox(_T("解析JPG图片失败！（数据可能损坏/非JPG格式）"));
+			return;
+		}
+
+		// 5. 将CImage中的位图设置到图片控件CStatic
+		// 先获取控件原有位图句柄，避免内存泄漏
+		hOldBmp = m_EdiLog.GetBitmap();
+		// 设置新位图到控件（CStatic的SetBitmap会返回原有句柄）
+		m_EdiLog.SetBitmap(img.Detach()); // Detach：将CImage的HBITMAP分离出来，交给控件管理
+
+		// 6. 释放控件原有位图（关键：避免内存泄漏）
+		if (hOldBmp != NULL)
+		{
+			DeleteObject(hOldBmp);
+			hOldBmp = NULL;
+		}
+
+		// 7. 刷新控件，让图片立即显示（避免卡顿/不刷新）
+		m_EdiLog.Invalidate();    // 标记控件为需要重绘
+		m_EdiLog.UpdateWindow(); // 立即执行重绘，显示新图片
+	}
+	catch (CException* e)
+	{
+		// 异常捕获：打印错误信息
+		CString strErr;
+		e->GetErrorMessage(strErr.GetBuffer(256), 256);
+		AfxMessageBox(_T("显示远程屏幕失败：") + strErr);
+		e->Delete();
+	}
+	catch (...)
+	{
+		// 捕获未知异常，防止程序崩溃
+		AfxMessageBox(_T("显示远程屏幕时发生未知错误！"));
+	}
+
+	// 8. 释放资源（无论是否成功，都要释放）
+	if (pStream != NULL)
+	{
+		pStream->Release(); // 释放IStream流
+	}
+	// 注意：hGlobal不需要手动释放，CreateStreamOnHGlobal第二个参数为TRUE时，流释放会自动释放hGlobal
+	if (hOldBmp != NULL)
+	{
+		DeleteObject(hOldBmp); // 二次释放保护
+	}
+}
+
 
 void CRemoteControlClientDlg::OnBnClickedButtonremotescreen()
 {

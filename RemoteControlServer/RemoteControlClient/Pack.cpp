@@ -16,21 +16,17 @@ CPack::CPack(int id, const char* data, int len) {
     setPackData(data, len);
 }
 
-// ------------------ 序列化（组包） ------------------
 
 std::vector<char> CPack::serialize(const CPack& pack) {
     int totalSize = HEADER_SIZE + pack.m_nPackLen;
     std::vector<char> buffer(totalSize);
 
-    // 包ID（转为网络字节序）
     uint32_t netID = htonl(static_cast<uint32_t>(pack.m_nPackID));
     std::memcpy(buffer.data(), &netID, sizeof(netID));
 
-    // 包数据长度（转为网络字节序）
     uint32_t netLen = htonl(static_cast<uint32_t>(pack.m_nPackLen));
     std::memcpy(buffer.data() + sizeof(netID), &netLen, sizeof(netLen));
 
-    // 拷贝实际数据（如果有的话）
     if (pack.m_nPackLen > 0) {
         std::memcpy(buffer.data() + HEADER_SIZE, pack.m_szPackData.data(), pack.m_nPackLen);
     }
@@ -38,7 +34,6 @@ std::vector<char> CPack::serialize(const CPack& pack) {
     return buffer;
 }
 
-// ------------------ 反序列化（解包） ------------------
 
 std::vector<CPack> CPack::deserializeAll(const char* data, size_t dataSize, size_t& bytesConsumed) {
     std::vector<CPack> packs;
@@ -46,29 +41,25 @@ std::vector<CPack> CPack::deserializeAll(const char* data, size_t dataSize, size
     bytesConsumed = 0;
 
     while (offset + HEADER_SIZE <= dataSize) {
-        // 读取 PackID（4字节）
         uint32_t netID;
         std::memcpy(&netID, data + offset, sizeof(uint32_t));
         uint32_t packID = ntohl(netID);
 
-        // 读取 Body 长度（4字节）
         uint32_t netLen;
         std::memcpy(&netLen, data + offset + sizeof(uint32_t), sizeof(uint32_t));
         uint32_t bodyLen = ntohl(netLen);
 
-        // 安全检查：防止超大包攻击
+ 
         if (bodyLen > static_cast<uint32_t>(MAX_PACK_DATA_SIZE)) {
             packs.clear();
-            return packs; // 或可根据需求改为 break / 抛异常
+            return packs; 
         }
 
-        // 检查是否收齐完整包：header(8) + body(bodyLen)
         size_t totalSize = HEADER_SIZE + static_cast<size_t>(bodyLen);
         if (offset + totalSize > dataSize) {
-            break; // 数据不完整，等待下一次接收
+            break;
         }
 
-        // 构造新包
         CPack pack;
         pack.m_nPackID = static_cast<int>(packID);
         pack.m_nPackLen = static_cast<int>(bodyLen);
@@ -92,7 +83,6 @@ std::vector<CPack> CPack::deserializeAll(const char* data, size_t dataSize, size
     return packs;
 }
 
-// ------------------ Getter / Setter ------------------
 
 void CPack::setPackID(int id) {
     m_nPackID = id;
@@ -127,7 +117,7 @@ bool CPack::Packsend(SOCKET sock) const {
     while (sent < total) {
         int ret = send(sock, buffer.data() + sent, total - sent, 0);
         if (ret <= 0) {
-            return false; // 发送失败
+            return false; 
         }
         sent += ret;
     }
@@ -138,14 +128,13 @@ const char* CPack::getData() const {
     if (m_szPackData.empty()) {
         return nullptr;
     }
-    return m_szPackData.data(); // ✅ 正确：返回底层指针
+    return m_szPackData.data();
 }
 
 int CPack::getDataLen() const {
-    return m_nPackLen; // 或 return static_cast<int>(m_szPackData.size());
+    return m_nPackLen;
 }
 
-// ------------------ 工具函数 ------------------
 
 void CPack::print() const {
     std::cout << "[CPack] ID=" << m_nPackID

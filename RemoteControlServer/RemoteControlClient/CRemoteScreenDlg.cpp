@@ -24,6 +24,7 @@ CRemoteScreenDlg::~CRemoteScreenDlg()
 void CRemoteScreenDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialogEx::DoDataExchange(pDX);
+	DDX_Control(pDX, IDC_STATICAA, RemoteControlScreen);
 }
 
 

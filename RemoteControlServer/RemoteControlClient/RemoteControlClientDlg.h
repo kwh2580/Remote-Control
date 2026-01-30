@@ -55,6 +55,7 @@ private:
 public:
 	afx_msg void Ondeletfile();
 	void GetScreenData(LPVOID pParam);
+	void ShowRemoteScreen();
 	afx_msg void OnBnClickedButtonremotescreen();
 	const std::vector<BYTE>& GetCachedJpgImage() const { return m_cachedJpgImage; }
 	void ClearCachedImage() { m_cachedJpgImage.clear(); }

@@ -17,6 +17,9 @@
 #define IDC_LIST1                       1007
 #define IDC_BUTTONFile                  1008
 #define IDC_BUTTONremoteScreen          1010
+#define IDC_STATICT                     1011
+#define IDC_STATICAA                    1013
+#define IDC_STATIC22                    1015
 #define ID_32771                        32771
 #define ID_32772                        32772
 #define ID_32773                        32773
@@ -33,7 +36,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        135
 #define _APS_NEXT_COMMAND_VALUE         32780
-#define _APS_NEXT_CONTROL_VALUE         1011
+#define _APS_NEXT_CONTROL_VALUE         1016
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif
