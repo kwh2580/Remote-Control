@@ -7,9 +7,12 @@
 #include "ClientFun.h"
 #include <fstream>
 #include "CRemoteScreenDlg.h"
+#include "Pack.h"
+#include "json.hpp"
 #include <atlimage.h> 
 #pragma comment(lib, "gdiplus.lib")
-
+#include <gdiplus.h>
+using namespace Gdiplus;
 // CRemoteControlClientDlg 对话框
 class CRemoteControlClientDlg : public CDialogEx
 {
@@ -73,4 +76,6 @@ public:
 	const std::vector<BYTE>& GetCachedJpgImage() const { return m_cachedJpgImage; }
 	void ClearCachedImage() { m_cachedJpgImage.clear(); }
 	CRemoteScreenDlg* p_RemoteScreen;
+	afx_msg void OnBnClickedButton2();
+	afx_msg void OnBnClickedButton3();
 };

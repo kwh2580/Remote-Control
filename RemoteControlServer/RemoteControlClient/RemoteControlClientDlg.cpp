@@ -100,6 +100,8 @@ BEGIN_MESSAGE_MAP(CRemoteControlClientDlg, CDialogEx)
 	ON_COMMAND(ID_dowload_file, &CRemoteControlClientDlg::Ondowloadfile)
 	ON_COMMAND(ID_delet_file, &CRemoteControlClientDlg::Ondeletfile)
 	ON_BN_CLICKED(IDC_BUTTONremoteScreen, &CRemoteControlClientDlg::OnBnClickedButtonremotescreen)
+	ON_BN_CLICKED(IDC_BUTTON2, &CRemoteControlClientDlg::OnBnClickedButton2)
+	ON_BN_CLICKED(IDC_BUTTON3, &CRemoteControlClientDlg::OnBnClickedButton3)
 END_MESSAGE_MAP()
 
 
@@ -708,7 +710,8 @@ void CRemoteControlClientDlg::StopScreenThread()
 	m_bThreadRunning = false;
 }
 
-//显示远程屏幕
+
+
 void CRemoteControlClientDlg::ShowRemoteScreen()
 {
 	// 1. 空数据/控件空判断：双重校验，避免崩溃
@@ -717,101 +720,141 @@ void CRemoteControlClientDlg::ShowRemoteScreen()
 		return;
 	}
 
-	CImage img;
+	// 替换CImage为GDI+的Image，无SetDPI依赖，天然像素对齐
+	Image* pGdiImage = nullptr;
 	HGLOBAL hGlobal = NULL;
 	IStream* pStream = NULL;
-	HBITMAP hOldBmp = NULL;
-	// 新增：保存控件DC，用于自适应绘制
 	CDC* pCtrlDC = nullptr;
 	HDC hMemDC = NULL;
 	HBITMAP hMemBmp = NULL, hOldMemBmp = NULL;
+	// GDI+初始化（全局只需一次，这里内联做局部初始化，避免全局依赖）
+	ULONG_PTR gdiplusToken = 0;
+	GdiplusStartupInput gdiplusInput;
 
-	// 统一资源释放：无论是否成功，都释放所有申请的资源
+	// 统一资源释放：包含GDI+、Image、内存、DC等所有资源
 	auto ReleaseAll = [&]() {
+		// GDI资源释放
 		if (hOldMemBmp) SelectObject(hMemDC, hOldMemBmp);
 		if (hMemBmp) DeleteObject(hMemBmp);
 		if (hMemDC) DeleteDC(hMemDC);
 		if (pCtrlDC) p_RemoteScreen->RemoteControlScreen.ReleaseDC(pCtrlDC);
+		// 流/内存释放
 		if (pStream) pStream->Release();
-		if (hOldBmp) DeleteObject(hOldBmp);
-		img.Destroy(); // 主动销毁CImage，避免内存泄漏
+		if (hGlobal) GlobalFree(hGlobal);
+		// GDI+ Image释放
+		if (pGdiImage) delete pGdiImage;
+		// GDI+反初始化
+		if (gdiplusToken != 0) GdiplusShutdown(gdiplusToken);
 		};
 
 	try
 	{
-		// 2. 分配全局内存并拷贝JPG数据（原逻辑不变，加错误提示）
-		hGlobal = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, m_cachedJpgImage.size());
-		if (hGlobal == NULL)
+		// 初始化GDI+（核心：用GDI+加载绘制JPG，消除DPI/Y轴偏移）
+		Status gdiStatus = GdiplusStartup(&gdiplusToken, &gdiplusInput, NULL);
+		if (gdiStatus != Ok)
 		{
-			AfxMessageBox(_T("分配全局内存失败！错误码："));
+			AfxMessageBox(_T("GDI+初始化失败！无法显示远程屏幕"));
 			ReleaseAll();
 			return;
 		}
 
+		// 2. 分配全局内存并拷贝JPG数据（原逻辑不变，保留）
+		hGlobal = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, m_cachedJpgImage.size());
+		if (hGlobal == NULL)
+		{
+			AfxMessageBox(_T("分配全局内存失败！错误码：") + CString(std::to_string(GetLastError()).c_str()));
+			ReleaseAll();
+			return;
+		}
 		LPVOID pData = GlobalLock(hGlobal);
 		memcpy(pData, m_cachedJpgImage.data(), m_cachedJpgImage.size());
 		GlobalUnlock(hGlobal);
 
-		// 3. 创建内存流（原逻辑不变，加错误提示）
+		// 3. 创建内存流（原逻辑不变，保留）
 		HRESULT hr = CreateStreamOnHGlobal(hGlobal, TRUE, &pStream);
-		if (hr != S_OK)
+		if (FAILED(hr))
 		{
-			AfxMessageBox(_T("创建IStream流失败！HRESULT："));
+			AfxMessageBox(_T("创建IStream流失败！HRESULT：") + CString(std::to_string(hr).c_str()));
 			ReleaseAll();
 			return;
 		}
 
-		// 4. 加载JPG到CImage（关键修复：加GDI+依赖、校验加载结果）
-		HRESULT loadHr = img.Load(pStream);
-		if (loadHr != S_OK)
+		// 4. 核心替换：用GDI+ Image加载JPG（天然无DPI偏移，替代CImage）
+		pGdiImage = Image::FromStream(pStream);
+		if (pGdiImage == nullptr || pGdiImage->GetLastStatus() != Ok)
 		{
-			//AfxMessageBox(_T("CImage解析JPG失败！\n错误码)));
+			AfxMessageBox(_T("解析JPG截图失败！图片数据损坏或格式错误"));
+			ReleaseAll();
+			return;
+		}
+		// 获取图片真实宽高（GDI+直接返回原始像素，无自动缩放）
+		UINT imgW = pGdiImage->GetWidth();
+		UINT imgH = pGdiImage->GetHeight();
+		if (imgW <= 0 || imgH <= 0)
+		{
+			AfxMessageBox(_T("远程截图图片尺寸无效！"));
 			ReleaseAll();
 			return;
 		}
 
-		// 5. 核心修复：获取控件客户区，创建适配的内存DC绘制（替代直接SetBitmap）
+		// 5. 获取控件客户区尺寸（修正CRect空判断，原逻辑错误）
 		CRect ctrlRect;
-		p_RemoteScreen->RemoteControlScreen.GetClientRect(&ctrlRect); // 控件有效绘制区域
-		if (ctrlRect == nullptr)
+		p_RemoteScreen->RemoteControlScreen.GetClientRect(&ctrlRect);
+		if (ctrlRect.IsRectEmpty())
 		{
 			AfxMessageBox(_T("图片控件区域为空！"));
 			ReleaseAll();
 			return;
 		}
+		int ctrlW = ctrlRect.Width();
+		int ctrlH = ctrlRect.Height();
+		if (ctrlW <= 0 || ctrlH <= 0)
+		{
+			AfxMessageBox(_T("图片控件尺寸无效！"));
+			ReleaseAll();
+			return;
+		}
 
-		// 获取控件DC，用于最终绘制
+		// 6. 创建控件DC+内存DC（离线绘制，防闪屏，原逻辑不变）
 		pCtrlDC = p_RemoteScreen->RemoteControlScreen.GetDC();
-		// 创建内存DC，用于离线绘制（避免闪屏）
+		if (pCtrlDC == nullptr)
+		{
+			AfxMessageBox(_T("获取控件DC失败！"));
+			ReleaseAll();
+			return;
+		}
 		hMemDC = CreateCompatibleDC(pCtrlDC->m_hDC);
-		// 创建与控件同尺寸的位图，作为绘制画布
-		hMemBmp = CreateCompatibleBitmap(pCtrlDC->m_hDC, ctrlRect.Width(), ctrlRect.Height());
+		hMemBmp = CreateCompatibleBitmap(pCtrlDC->m_hDC, ctrlW, ctrlH);
 		hOldMemBmp = (HBITMAP)SelectObject(hMemDC, hMemBmp);
 
-		// 清空白布（避免残留旧图）
-		RECT memRect = { 0,0,ctrlRect.Width(),ctrlRect.Height() };
+		// 清空白布（白色背景，避免残留旧图）
+		RECT memRect = { 0,0,ctrlW,ctrlH };
 		FillRect(hMemDC, &memRect, (HBRUSH)GetStockObject(WHITE_BRUSH));
 
-		// 自适应缩放绘制图片（保持宽高比，无拉伸）
-		int imgW = img.GetWidth();
-		int imgH = img.GetHeight();
-		float scaleX = (float)ctrlRect.Width() / imgW;
-		float scaleY = (float)ctrlRect.Height() / imgH;
+		// 7. 自适应缩放计算（保持宽高比，核心优化Y轴取整，无偏差）
+		float scaleX = (float)ctrlW / imgW;
+		float scaleY = (float)ctrlH / imgH;
 		float scale = min(scaleX, scaleY); // 取最小缩放比，保证图片完整
-		int drawW = (int)(imgW * scale);
-		int drawH = (int)(imgH * scale);
-		int drawX = (ctrlRect.Width() - drawW) / 2;  // 水平居中
-		int drawY = (ctrlRect.Height() - drawH) / 2; // 垂直居中
+		// 四舍五入取整，消除浮点像素偏差（Y轴关键）
+		int drawW = (int)round(imgW * scale);
+		int drawH = (int)round(imgH * scale);
+		// 计算居中坐标（水平+垂直，强制非负，避免Y轴负数绘制偏移）
+		int drawX = max(0, (ctrlW - drawW) / 2);
+		int drawY = max(0, (ctrlH - drawH) / 2);
 
-		// 将CImage绘制到内存DC的画布上
-		img.Draw(hMemDC, drawX, drawY, drawW, drawH, 0, 0, imgW, imgH);
+		// 8. 核心绘制：GDI+绘制到内存DC（天然像素对齐，彻底解决Y轴错位）
+		Graphics graphics(hMemDC); // GDI+绘图对象
+		// 抗锯齿（可选，让缩放后的图片更清晰，不影响坐标）
+		graphics.SetSmoothingMode(SmoothingModeHighQuality);
+		graphics.SetInterpolationMode(InterpolationModeHighQualityBicubic);
+		// 绘制图片（原始像素→缩放后，drawX/drawY为控件内居中坐标，无任何隐形偏移）
+		graphics.DrawImage(pGdiImage, Rect(drawX, drawY, drawW, drawH), 0, 0, imgW, imgH, UnitPixel);
 
-		// 6. 将内存DC的画布绘制到控件DC，完成显示（核心替代SetBitmap）
-		BitBlt(pCtrlDC->m_hDC, 0, 0, ctrlRect.Width(), ctrlRect.Height(),
-			hMemDC, 0, 0, SRCCOPY);
+		// 9. 内存DC→控件DC（像素级复制，无闪屏，原逻辑不变）
+		BitBlt(pCtrlDC->m_hDC, 0, 0, ctrlW, ctrlH, hMemDC, 0, 0, SRCCOPY);
 
-		// 7. 刷新控件，立即显示
-		p_RemoteScreen->RemoteControlScreen.Invalidate(FALSE); // FALSE：不擦除背景，避免闪屏
+		// 10. 刷新控件，立即显示（不擦除背景，防闪屏）
+		p_RemoteScreen->RemoteControlScreen.Invalidate(FALSE);
 		p_RemoteScreen->RemoteControlScreen.UpdateWindow();
 	}
 	catch (CException* e)
@@ -850,4 +893,22 @@ void CRemoteControlClientDlg::OnBnClickedButtonremotescreen()
  //   dlg.DoModal();
 	//创建线程
    // CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)GetScreenData, NULL, 0, NULL);
+}
+
+void CRemoteControlClientDlg::OnBnClickedButton2()
+{
+	CPack pack;
+    pack.setPackID(7);
+	//发送包
+    client.sendPack(pack);
+
+
+}
+
+void CRemoteControlClientDlg::OnBnClickedButton3()
+{
+	CPack pack;
+	pack.setPackID(8);
+	//发送包
+	client.sendPack(pack);
 }

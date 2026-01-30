@@ -11,6 +11,8 @@
 #define IDD_DIALOG1                     133
 #define IDD_REMOTE_SCREEN               133
 #define IDC_BUTTON1                     1000
+#define IDC_BUTTON2                     1001
+#define IDC_BUTTON3                     1002
 #define IDC_EDIT2                       1003
 #define IDC_BUTTONConnect               1005
 #define IDC_TREE1                       1006
@@ -18,7 +20,6 @@
 #define IDC_BUTTONFile                  1008
 #define IDC_BUTTONremoteScreen          1010
 #define IDC_STATICAA                    1013
-#define IDC_STATIC22                    1015
 #define ID_32771                        32771
 #define ID_32772                        32772
 #define ID_32773                        32773
